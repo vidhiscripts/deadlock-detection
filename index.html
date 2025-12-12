@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Deadlock Detector</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: #e2e8f0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #fff; margin-bottom: 10px; font-size: 2.5em; text-shadow: 0 0 20px rgba(99, 102, 241, 0.5); }
+        .subtitle { color: #94a3b8; margin-bottom: 30px; font-size: 1.1em; }
+        .panel {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .controls { display: flex; gap: 12px; margin-bottom: 15px; flex-wrap: wrap; }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        button:hover { transform: translateY(-2px); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-start { background: #10b981; color: white; }
+        .btn-pause { background: #f59e0b; color: white; }
+        .btn-reset { background: #3b82f6; color: white; }
+        .btn-scenario { background: #475569; color: #e2e8f0; padding: 8px 16px; font-size: 13px; }
+        .btn-scenario.active { background: #6366f1; color: white; }
+        .status {
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 600;
+        }
+        .status-safe { background: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
+        .status-deadlock { background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 1024px) { .grid { grid-template-columns: 1fr; } }
+        .section-title { color: #cbd5e1; font-size: 1.2em; margin-bottom: 16px; font-weight: 600; }
+        .process, .resource {
+            background: rgba(15, 23, 42, 0.8);
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border: 2px solid #334155;
+        }
+        .process.waiting { border-color: #f59e0b; }
+        .process.deadlocked { border-color: #dc2626; animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { border-color: #dc2626; }
+            50% { border-color: #ef4444; }
+        }
+        .process-header, .resource-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .process-id, .resource-id { font-weight: 700; font-size: 1.1em; }
+        .badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-running { background: #065f46; color: #6ee7b7; }
+        .badge-waiting { background: #78350f; color: #fcd34d; }
+        .badge-available { background: #065f46; color: #6ee7b7; }
+        .badge-held { background: #7f1d1d; color: #fca5a5; }
+        .process-info, .resource-info { color: #94a3b8; font-size: 14px; }
+        .logs {
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 8px;
+            padding: 16px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .log-entry {
+            padding: 8px;
+            margin-bottom: 4px;
+            border-left: 3px solid #334155;
+            padding-left: 12px;
+        }
+        .log-entry.alert { border-left-color: #dc2626; color: #fca5a5; font-weight: 600; }
+        .log-time { color: #64748b; margin-right: 12px; }
+        .graph-container {
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 8px;
+            padding: 24px;
+            text-align: center;
+            min-height: 350px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .graph-svg { width: 100%; max-width: 600px; }
+        circle.process { fill: #3b82f6; stroke: #60a5fa; stroke-width: 3; }
+        circle.resource { fill: #10b981; stroke: #34d399; stroke-width: 3; }
+        circle.deadlocked { fill: #dc2626; stroke: #ef4444; stroke-width: 4; }
+        text { fill: #fff; font-size: 14px; font-weight: 600; }
+        line { stroke: #64748b; stroke-width: 2; }
+        line.waiting { stroke: #f59e0b; stroke-width: 3; stroke-dasharray: 5,5; }
+        line.deadlock-cycle { stroke: #dc2626; stroke-width: 4; }
+        .scenario-info {
+            background: rgba(99, 102, 241, 0.1);
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #6366f1;
+            margin-bottom: 15px;
+            color: #cbd5e1;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Automated Deadlock Detector</h1>
+        <p class="subtitle">Advanced real-time deadlock detection with multiple scenarios</p>
+
+        <div id="status" class="status status-safe">
+            <span>●</span>
+            <span id="statusText">System Safe - No Deadlock Detected</span>
+        </div>
+
+        <div class="panel">
+            <div class="controls">
+                <button id="btnStart" class="btn-start" onclick="start()">▶ Start</button>
+                <button id="btnPause" class="btn-pause" onclick="pause()" disabled>⏸ Pause</button>
+                <button class="btn-reset" onclick="reset()">↻ Reset</button>
+            </div>
+            <div class="scenario-info" id="scenarioInfo">Select a scenario below to begin</div>
+            <div class="controls">
+                <span style="color: #cbd5e1; font-weight: 600;">Scenarios:</span>
+                <button class="btn-scenario active" onclick="changeScenario('simple', this)">Simple</button>
+                <button class="btn-scenario" onclick="changeScenario('circular', this)">Circular</button>
+                <button class="btn-scenario" onclick="changeScenario('dining', this)">Dining</button>
+                <button class="btn-scenario" onclick="changeScenario('bridge', this)">Bridge</button>
+                <button class="btn-scenario" onclick="changeScenario('complex', this)">Complex</button>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div>
+                <div class="panel">
+                    <h3 class="section-title">⚙️ Processes</h3>
+                    <div id="processList"></div>
+                </div>
+                <div class="panel">
+                    <h3 class="section-title">💾 Resources</h3>
+                    <div id="resourceList"></div>
+                </div>
+            </div>
+            <div>
+                <div class="panel">
+                    <h3 class="section-title">📊 Resource Allocation Graph</h3>
+                    <div class="graph-container">
+                        <svg id="graph" class="graph-svg" viewBox="0 0 500 400"></svg>
+                    </div>
+                </div>
+                <div class="panel">
+                    <h3 class="section-title">📝 Event Logs</h3>
+                    <div id="logs" class="logs"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let state = {
+            processes: [],
+            resources: [],
+            isRunning: false,
+            deadlockDetected: false,
+            deadlockCycle: [],
+            logs: [],
+            scenario: 'simple',
+            timer: null,
+            step: 0
+        };
+
+        const scenarios = {
+            simple: {
+                name: 'Simple Deadlock',
+                desc: 'Two processes each hold one resource and request the other',
+                processes: [
+                    { id: 'P1', holding: ['R1'], waiting: null, state: 'running' },
+                    { id: 'P2', holding: ['R2'], waiting: null, state: 'running' }
+                ],
+                resources: [
+                    { id: 'R1', holder: 'P1', available: false },
+                    { id: 'R2', holder: 'P2', available: false }
+                ],
+                steps: [
+                    { process: 0, action: 'request', resource: 'R2' },
+                    { process: 1, action: 'request', resource: 'R1' }
+                ]
+            },
+            circular: {
+                name: 'Circular Wait',
+                desc: 'Three processes form a circular dependency chain',
+                processes: [
+                    { id: 'P1', holding: ['R1'], waiting: null, state: 'running' },
+                    { id: 'P2', holding: ['R2'], waiting: null, state: 'running' },
+                    { id: 'P3', holding: ['R3'], waiting: null, state: 'running' }
+                ],
+                resources: [
+                    { id: 'R1', holder: 'P1', available: false },
+                    { id: 'R2', holder: 'P2', available: false },
+                    { id: 'R3', holder: 'P3', available: false }
+                ],
+                steps: [
+                    { process: 0, action: 'request', resource: 'R2' },
+                    { process: 1, action: 'request', resource: 'R3' },
+                    { process: 2, action: 'request', resource: 'R1' }
+                ]
+            },
+            dining: {
+                name: 'Dining Philosophers',
+                desc: 'Four philosophers and four forks - classic synchronization problem',
+                processes: [
+                    { id: 'Phil1', holding: ['Fork1'], waiting: null, state: 'running' },
+                    { id: 'Phil2', holding: ['Fork2'], waiting: null, state: 'running' },
+                    { id: 'Phil3', holding: ['Fork3'], waiting: null, state: 'running' },
+                    { id: 'Phil4', holding: ['Fork4'], waiting: null, state: 'running' }
+                ],
+                resources: [
+                    { id: 'Fork1', holder: 'Phil1', available: false },
+                    { id: 'Fork2', holder: 'Phil2', available: false },
+                    { id: 'Fork3', holder: 'Phil3', available: false },
+                    { id: 'Fork4', holder: 'Phil4', available: false }
+                ],
+                steps: [
+                    { process: 0, action: 'request', resource: 'Fork2' },
+                    { process: 1, action: 'request', resource: 'Fork3' },
+                    { process: 2, action: 'request', resource: 'Fork4' },
+                    { process: 3, action: 'request', resource: 'Fork1' }
+                ]
+            },
+            bridge: {
+                name: 'Bridge Crossing',
+                desc: 'Cars from both sides need to cross a single-lane bridge',
+                processes: [
+                    { id: 'CarN', holding: ['BridgeN'], waiting: null, state: 'running' },
+                    { id: 'CarS', holding: ['BridgeS'], waiting: null, state: 'running' }
+                ],
+                resources: [
+                    { id: 'BridgeN', holder: 'CarN', available: false },
+                    { id: 'BridgeS', holder: 'CarS', available: false }
+                ],
+                steps: [
+                    { process: 0, action: 'request', resource: 'BridgeS' },
+                    { process: 1, action: 'request', resource: 'BridgeN' }
+                ]
+            },
+            complex: {
+                name: 'Complex Chain',
+                desc: 'Five processes with complex resource dependencies',
+                processes: [
+                    { id: 'P1', holding: ['R1'], waiting: null, state: 'running' },
+                    { id: 'P2', holding: ['R2'], waiting: null, state: 'running' },
+                    { id: 'P3', holding: ['R3'], waiting: null, state: 'running' },
+                    { id: 'P4', holding: ['R4'], waiting: null, state: 'running' },
+                    { id: 'P5', holding: ['R5'], waiting: null, state: 'running' }
+                ],
+                resources: [
+                    { id: 'R1', holder: 'P1', available: false },
+                    { id: 'R2', holder: 'P2', available: false },
+                    { id: 'R3', holder: 'P3', available: false },
+                    { id: 'R4', holder: 'P4', available: false },
+                    { id: 'R5', holder: 'P5', available: false }
+                ],
+                steps: [
+                    { process: 0, action: 'request', resource: 'R2' },
+                    { process: 1, action: 'request', resource: 'R3' },
+                    { process: 2, action: 'request', resource: 'R4' },
+                    { process: 3, action: 'request', resource: 'R5' },
+                    { process: 4, action: 'request', resource: 'R1' }
+                ]
+            }
+        };
+
+        function initScenario(type) {
+            state.logs = [];
+            state.deadlockDetected = false;
+            state.deadlockCycle = [];
+            state.step = 0;
+            
+            const scenario = scenarios[type];
+            state.processes = JSON.parse(JSON.stringify(scenario.processes));
+            state.resources = JSON.parse(JSON.stringify(scenario.resources));
+            
+            document.getElementById('scenarioInfo').innerHTML = `<strong>${scenario.name}:</strong> ${scenario.desc}`;
+            addLog(`Initialized: ${scenario.name}`);
+            render();
+        }
+
+        function addLog(message) {
+            const time = new Date().toLocaleTimeString();
+            const isAlert = message.includes('DEADLOCK');
+            state.logs.push({ time, message, isAlert });
+            renderLogs();
+        }
+
+        function detectCycle() {
+            const graph = {};
+            state.processes.forEach(p => {
+                graph[p.id] = [];
+                if (p.waiting) {
+                    const resource = state.resources.find(r => r.id === p.waiting);
+                    if (resource && resource.holder) graph[p.id].push(resource.holder);
+                }
+            });
+
+            const visited = new Set();
+            const recStack = new Set();
+
+            function dfs(node, path) {
+                if (recStack.has(node)) {
+                    const cycleStart = path.indexOf(node);
+                    return path.slice(cycleStart);
+                }
+                if (visited.has(node)) return null;
+                visited.add(node);
+                recStack.add(node);
+                for (const neighbor of (graph[node] || [])) {
+                    const result = dfs(neighbor, [...path, neighbor]);
+                    if (result) return result;
+                }
+                recStack.delete(node);
+                return null;
+            }
+
+            for (const node in graph) {
+                const cycle = dfs(node, [node]);
+                if (cycle) return cycle;
+            }
+            return null;
+        }
+
+        function simulateStep() {
+            const scenario = scenarios[state.scenario];
+            if (state.step >= scenario.steps.length) return;
+
+            const stepData = scenario.steps[state.step];
+            const process = state.processes[stepData.process];
+            
+            process.waiting = stepData.resource;
+            process.state = 'waiting';
+            const resource = state.resources.find(r => r.id === stepData.resource);
+            addLog(`${process.id} requests ${stepData.resource} (held by ${resource.holder})`);
+
+            state.step++;
+
+            const cycle = detectCycle();
+            if (cycle) {
+                state.deadlockDetected = true;
+                state.deadlockCycle = cycle;
+                addLog(`🚨 DEADLOCK! Cycle: ${cycle.join(' → ')}`);
+                pause();
+            }
+
+            render();
+        }
+
+        function start() {
+            if (state.deadlockDetected) initScenario(state.scenario);
+            state.isRunning = true;
+            document.getElementById('btnStart').disabled = true;
+            document.getElementById('btnPause').disabled = false;
+            state.timer = setInterval(() => {
+                if (!state.deadlockDetected) simulateStep();
+            }, 1500);
+        }
+
+        function pause() {
+            state.isRunning = false;
+            document.getElementById('btnStart').disabled = false;
+            document.getElementById('btnPause').disabled = true;
+            if (state.timer) clearInterval(state.timer);
+        }
+
+        function reset() {
+            pause();
+            initScenario(state.scenario);
+        }
+
+        function changeScenario(type, element) {
+            pause();
+            state.scenario = type;
+            document.querySelectorAll('.btn-scenario').forEach(btn => btn.classList.remove('active'));
+            element.classList.add('active');
+            initScenario(type);
+        }
+
+        function render() {
+            renderProcesses();
+            renderResources();
+            renderGraph();
+            renderStatus();
+        }
+
+        function renderProcesses() {
+            const html = state.processes.map(p => {
+                const isDead = state.deadlockCycle.includes(p.id);
+                return `<div class="process ${p.state === 'waiting' ? 'waiting' : ''} ${isDead ? 'deadlocked' : ''}">
+                    <div class="process-header">
+                        <span class="process-id">${p.id}</span>
+                        <span class="badge badge-${p.state}">${p.state}</span>
+                    </div>
+                    <div class="process-info">
+                        Holding: ${p.holding.length ? p.holding.join(', ') : 'None'}<br>
+                        ${p.waiting ? `Waiting for: ${p.waiting}` : 'Not waiting'}
+                    </div>
+                </div>`;
+            }).join('');
+            document.getElementById('processList').innerHTML = html;
+        }
+
+        function renderResources() {
+            const html = state.resources.map(r => `<div class="resource">
+                <div class="resource-header">
+                    <span class="resource-id">${r.id}</span>
+                    <span class="badge badge-${r.available ? 'available' : 'held'}">${r.available ? 'Available' : 'Held'}</span>
+                </div>
+                <div class="resource-info">${r.holder ? `Held by: ${r.holder}` : 'Available'}</div>
+            </div>`).join('');
+            document.getElementById('resourceList').innerHTML = html;
+        }
+
+        function renderGraph() {
+            const svg = document.getElementById('graph');
+            const n = state.processes.length;
+            const centerX = 250, centerY = 200, radius = 120;
+            const positions = {};
+            
+            state.processes.forEach((p, i) => {
+                const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+                positions[p.id] = [centerX + radius * Math.cos(angle), centerY + radius * Math.sin(angle)];
+            });
+            
+            state.resources.forEach((r, i) => {
+                const angle = (i * 2 * Math.PI / state.resources.length) - Math.PI / 2;
+                positions[r.id] = [centerX + (radius - 60) * Math.cos(angle), centerY + (radius - 60) * Math.sin(angle)];
+            });
+
+            let elements = '';
+            state.processes.forEach(p => {
+                p.holding.forEach(r => {
+                    if (positions[r]) {
+                        const [rx, ry] = positions[r];
+                        const [px, py] = positions[p.id];
+                        elements += `<line x1="${rx}" y1="${ry}" x2="${px}" y2="${py}" />`;
+                    }
+                });
+                if (p.waiting && positions[p.waiting]) {
+                    const [px, py] = positions[p.id];
+                    const [rx, ry] = positions[p.waiting];
+                    const isDead = state.deadlockCycle.includes(p.id);
+                    elements += `<line x1="${px}" y1="${py}" x2="${rx}" y2="${ry}" class="${isDead ? 'deadlock-cycle' : 'waiting'}" />`;
+                }
+            });
+
+            state.resources.forEach(r => {
+                if (positions[r.id]) {
+                    const [x, y] = positions[r.id];
+                    elements += `<circle cx="${x}" cy="${y}" r="20" class="resource" />`;
+                    elements += `<text x="${x}" y="${y + 5}" text-anchor="middle">${r.id}</text>`;
+                }
+            });
+
+            state.processes.forEach(p => {
+                const [x, y] = positions[p.id];
+                const isDead = state.deadlockCycle.includes(p.id);
+                elements += `<circle cx="${x}" cy="${y}" r="28" class="process ${isDead ? 'deadlocked' : ''}" />`;
+                elements += `<text x="${x}" y="${y + 5}" text-anchor="middle">${p.id}</text>`;
+            });
+
+            svg.innerHTML = elements;
+        }
+
+        function renderStatus() {
+            const statusDiv = document.getElementById('status');
+            const statusText = document.getElementById('statusText');
+            if (state.deadlockDetected) {
+                statusDiv.className = 'status status-deadlock';
+                statusText.textContent = 'DEADLOCK DETECTED - Cycle: ' + state.deadlockCycle.join(' → ');
+            } else {
+                statusDiv.className = 'status status-safe';
+                statusText.textContent = 'System Safe - No Deadlock Detected';
+            }
+        }
+
+        function renderLogs() {
+            const html = state.logs.slice().reverse().map(log => `
+                <div class="log-entry ${log.isAlert ? 'alert' : ''}">
+                    <span class="log-time">[${log.time}]</span>${log.message}
+                </div>
+            `).join('');
+            document.getElementById('logs').innerHTML = html;
+        }
+
+        initScenario('simple');
+    </script>
+</body>
+</html>
