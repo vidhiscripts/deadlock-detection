@@ -191,9 +191,10 @@
 
         <div class="panel">
             <div class="controls">
-                <button id="btnStart" class="btn-start" onclick="start()">▶ Start</button>
-                <button id="btnPause" class="btn-pause" onclick="pause()" disabled>⏸ Pause</button>
-                <button class="btn-reset" onclick="reset()">↻ Reset</button>
+                <button id="btnStart" class="btn-start" onclick="start()">Auto Run</button>
+                <button id="btnPause" class="btn-pause" onclick="pause()" disabled>Pause</button>
+                <button id="btnStep" class="btn-reset" onclick="manualStep()">Next Step</button>
+                <button class="btn-reset" onclick="reset()">Reset</button>
             </div>
             <div class="controls">
                 <span style="color: #cbd5e1;">Speed:</span>
@@ -461,6 +462,14 @@
         function reset() {
             pause();
             initScenario(state.scenario);
+        }
+
+        function manualStep() {
+            if (state.deadlockDetected) {
+                initScenario(state.scenario);
+                return;
+            }
+            simulateStep();
         }
 
         function changeScenario(type, element) {
