@@ -158,6 +158,28 @@
             font-size: 0.9em;
             color: #94a3b8;
         }
+        .progress-container {
+            margin-bottom: 15px;
+        }
+        .progress-bar-wrapper {
+            width: 100%;
+            height: 8px;
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #8b5cf6);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-text {
+            font-size: 13px;
+            color: #94a3b8;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -200,6 +222,12 @@
                 <span style="color: #cbd5e1;">Speed:</span>
                 <input type="range" id="speedSlider" min="500" max="3000" value="1500" step="100" style="width: 120px;" oninput="updateSpeed()">
                 <span id="speedLabel" style="color: #cbd5e1; min-width: 40px;">1.5s</span>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+                <div class="progress-text" id="progressText">Step 0 of 0</div>
             </div>
             <div class="scenario-info" id="scenarioInfo">Select a scenario below to begin</div>
             <div class="controls">
@@ -498,6 +526,17 @@
             renderGraph();
             renderStatus();
             renderStats();
+            renderProgress();
+        }
+
+        function renderProgress() {
+            const scenario = scenarios[state.scenario];
+            const totalSteps = scenario.steps.length;
+            const currentStep = state.step;
+            const percentage = totalSteps > 0 ? (currentStep / totalSteps) * 100 : 0;
+            
+            document.getElementById('progressBar').style.width = percentage + '%';
+            document.getElementById('progressText').textContent = 'Step ' + currentStep + ' of ' + totalSteps;
         }
 
         function renderStats() {
