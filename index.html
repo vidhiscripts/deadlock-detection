@@ -130,6 +130,34 @@
             color: #cbd5e1;
             font-size: 14px;
         }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: rgba(15, 23, 42, 0.8);
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: #6366f1;
+        }
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #6366f1;
+            margin-bottom: 4px;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            color: #94a3b8;
+        }
     </style>
 </head>
 <body>
@@ -140,6 +168,25 @@
         <div id="status" class="status status-safe">
             <span>●</span>
             <span id="statusText">System Safe - No Deadlock Detected</span>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="statProcesses">0</div>
+                <div class="stat-label">Processes</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statResources">0</div>
+                <div class="stat-label">Resources</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statWaiting">0</div>
+                <div class="stat-label">Waiting</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statSteps">0</div>
+                <div class="stat-label">Steps</div>
+            </div>
         </div>
 
         <div class="panel">
@@ -201,7 +248,8 @@
             scenario: 'simple',
             timer: null,
             step: 0,
-            speed: 1500
+            speed: 1500,
+            stepCount: 0
         };
 
         const scenarios = {
@@ -310,29 +358,30 @@
             state.deadlockDetected = false;
             state.deadlockCycle = [];
             state.step = 0;
+            state.stepCount = 0;
             
             const scenario = scenarios[type];
             state.processes = JSON.parse(JSON.stringify(scenario.processes));
             state.resources = JSON.parse(JSON.stringify(scenario.resources));
             
-            document.getElementById('scenarioInfo').innerHTML = `<strong>${scenario.name}:</strong> ${scenario.desc}`;
-            addLog(`Initialized: ${scenario.name}`);
+            document.getElementById('scenarioInfo').innerHTML = '<strong>' + scenario.name + ':</strong> ' + scenario.desc;
+            addLog('Initialized: ' + scenario.name);
             render();
         }
 
         function addLog(message) {
             const time = new Date().toLocaleTimeString();
             const isAlert = message.includes('DEADLOCK');
-            state.logs.push({ time, message, isAlert });
+            state.logs.push({ time: time, message: message, isAlert: isAlert });
             renderLogs();
         }
 
         function detectCycle() {
             const graph = {};
-            state.processes.forEach(p => {
+            state.processes.forEach(function(p) {
                 graph[p.id] = [];
                 if (p.waiting) {
-                    const resource = state.resources.find(r => r.id === p.waiting);
+                    const resource = state.resources.find(function(r) { return r.id === p.waiting; });
                     if (resource && resource.holder) graph[p.id].push(resource.holder);
                 }
             });
@@ -348,8 +397,11 @@
                 if (visited.has(node)) return null;
                 visited.add(node);
                 recStack.add(node);
-                for (const neighbor of (graph[node] || [])) {
-                    const result = dfs(neighbor, [...path, neighbor]);
+                const neighbors = graph[node] || [];
+                for (let i = 0; i < neighbors.length; i++) {
+                    const newPath = path.slice();
+                    newPath.push(neighbors[i]);
+                    const result = dfs(neighbors[i], newPath);
                     if (result) return result;
                 }
                 recStack.delete(node);
@@ -372,16 +424,17 @@
             
             process.waiting = stepData.resource;
             process.state = 'waiting';
-            const resource = state.resources.find(r => r.id === stepData.resource);
-            addLog(`${process.id} requests ${stepData.resource} (held by ${resource.holder})`);
+            const resource = state.resources.find(function(r) { return r.id === stepData.resource; });
+            addLog(process.id + ' requests ' + stepData.resource + ' (held by ' + resource.holder + ')');
 
             state.step++;
+            state.stepCount++;
 
             const cycle = detectCycle();
             if (cycle) {
                 state.deadlockDetected = true;
                 state.deadlockCycle = cycle;
-                addLog(`🚨 DEADLOCK! Cycle: ${cycle.join(' → ')}`);
+                addLog('🚨 DEADLOCK! Cycle: ' + cycle.join(' → '));
                 pause();
             }
 
@@ -393,19 +446,9 @@
             state.isRunning = true;
             document.getElementById('btnStart').disabled = true;
             document.getElementById('btnPause').disabled = false;
-            state.timer = setInterval(() => {
+            state.timer = setInterval(function() {
                 if (!state.deadlockDetected) simulateStep();
             }, state.speed);
-        }
-
-        function updateSpeed() {
-            const slider = document.getElementById('speedSlider');
-            state.speed = parseInt(slider.value);
-            document.getElementById('speedLabel').textContent = (state.speed / 1000).toFixed(1) + 's';
-            if (state.isRunning) {
-                pause();
-                start();
-            }
         }
 
         function pause() {
@@ -423,9 +466,21 @@
         function changeScenario(type, element) {
             pause();
             state.scenario = type;
-            document.querySelectorAll('.btn-scenario').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.btn-scenario').forEach(function(btn) {
+                btn.classList.remove('active');
+            });
             element.classList.add('active');
             initScenario(type);
+        }
+
+        function updateSpeed() {
+            const slider = document.getElementById('speedSlider');
+            state.speed = parseInt(slider.value);
+            document.getElementById('speedLabel').textContent = (state.speed / 1000).toFixed(1) + 's';
+            if (state.isRunning) {
+                pause();
+                start();
+            }
         }
 
         function render() {
@@ -433,82 +488,101 @@
             renderResources();
             renderGraph();
             renderStatus();
+            renderStats();
+        }
+
+        function renderStats() {
+            document.getElementById('statProcesses').textContent = state.processes.length;
+            document.getElementById('statResources').textContent = state.resources.length;
+            const waitingCount = state.processes.filter(function(p) { return p.state === 'waiting'; }).length;
+            document.getElementById('statWaiting').textContent = waitingCount;
+            document.getElementById('statSteps').textContent = state.stepCount;
         }
 
         function renderProcesses() {
-            const html = state.processes.map(p => {
+            const html = state.processes.map(function(p) {
                 const isDead = state.deadlockCycle.includes(p.id);
-                return `<div class="process ${p.state === 'waiting' ? 'waiting' : ''} ${isDead ? 'deadlocked' : ''}">
-                    <div class="process-header">
-                        <span class="process-id">${p.id}</span>
-                        <span class="badge badge-${p.state}">${p.state}</span>
-                    </div>
-                    <div class="process-info">
-                        Holding: ${p.holding.length ? p.holding.join(', ') : 'None'}<br>
-                        ${p.waiting ? `Waiting for: ${p.waiting}` : 'Not waiting'}
-                    </div>
-                </div>`;
+                return '<div class="process ' + (p.state === 'waiting' ? 'waiting' : '') + ' ' + (isDead ? 'deadlocked' : '') + '">' +
+                    '<div class="process-header">' +
+                    '<span class="process-id">' + p.id + '</span>' +
+                    '<span class="badge badge-' + p.state + '">' + p.state + '</span>' +
+                    '</div>' +
+                    '<div class="process-info">' +
+                    'Holding: ' + (p.holding.length ? p.holding.join(', ') : 'None') + '<br>' +
+                    (p.waiting ? 'Waiting for: ' + p.waiting : 'Not waiting') +
+                    '</div>' +
+                    '</div>';
             }).join('');
             document.getElementById('processList').innerHTML = html;
         }
 
         function renderResources() {
-            const html = state.resources.map(r => `<div class="resource">
-                <div class="resource-header">
-                    <span class="resource-id">${r.id}</span>
-                    <span class="badge badge-${r.available ? 'available' : 'held'}">${r.available ? 'Available' : 'Held'}</span>
-                </div>
-                <div class="resource-info">${r.holder ? `Held by: ${r.holder}` : 'Available'}</div>
-            </div>`).join('');
+            const html = state.resources.map(function(r) {
+                return '<div class="resource">' +
+                    '<div class="resource-header">' +
+                    '<span class="resource-id">' + r.id + '</span>' +
+                    '<span class="badge badge-' + (r.available ? 'available' : 'held') + '">' + (r.available ? 'Available' : 'Held') + '</span>' +
+                    '</div>' +
+                    '<div class="resource-info">' + (r.holder ? 'Held by: ' + r.holder : 'Available') + '</div>' +
+                    '</div>';
+            }).join('');
             document.getElementById('resourceList').innerHTML = html;
         }
 
         function renderGraph() {
             const svg = document.getElementById('graph');
             const n = state.processes.length;
-            const centerX = 250, centerY = 200, radius = 120;
+            const centerX = 250;
+            const centerY = 200;
+            const radius = 120;
             const positions = {};
             
-            state.processes.forEach((p, i) => {
+            state.processes.forEach(function(p, i) {
                 const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
                 positions[p.id] = [centerX + radius * Math.cos(angle), centerY + radius * Math.sin(angle)];
             });
             
-            state.resources.forEach((r, i) => {
+            state.resources.forEach(function(r, i) {
                 const angle = (i * 2 * Math.PI / state.resources.length) - Math.PI / 2;
                 positions[r.id] = [centerX + (radius - 60) * Math.cos(angle), centerY + (radius - 60) * Math.sin(angle)];
             });
 
             let elements = '';
-            state.processes.forEach(p => {
-                p.holding.forEach(r => {
+            state.processes.forEach(function(p) {
+                p.holding.forEach(function(r) {
                     if (positions[r]) {
-                        const [rx, ry] = positions[r];
-                        const [px, py] = positions[p.id];
-                        elements += `<line x1="${rx}" y1="${ry}" x2="${px}" y2="${py}" />`;
+                        const rx = positions[r][0];
+                        const ry = positions[r][1];
+                        const px = positions[p.id][0];
+                        const py = positions[p.id][1];
+                        elements += '<line x1="' + rx + '" y1="' + ry + '" x2="' + px + '" y2="' + py + '" />';
                     }
                 });
                 if (p.waiting && positions[p.waiting]) {
-                    const [px, py] = positions[p.id];
-                    const [rx, ry] = positions[p.waiting];
+                    const px = positions[p.id][0];
+                    const py = positions[p.id][1];
+                    const rx = positions[p.waiting][0];
+                    const ry = positions[p.waiting][1];
                     const isDead = state.deadlockCycle.includes(p.id);
-                    elements += `<line x1="${px}" y1="${py}" x2="${rx}" y2="${ry}" class="${isDead ? 'deadlock-cycle' : 'waiting'}" />`;
+                    elements += '<line x1="' + px + '" y1="' + py + '" x2="' + rx + '" y2="' + ry + '" class="' + (isDead ? 'deadlock-cycle' : 'waiting') + '" />';
                 }
             });
 
-            state.resources.forEach(r => {
+            state.resources.forEach(function(r) {
                 if (positions[r.id]) {
-                    const [x, y] = positions[r.id];
-                    elements += `<circle cx="${x}" cy="${y}" r="20" class="resource" />`;
-                    elements += `<text x="${x}" y="${y + 5}" text-anchor="middle">${r.id}</text>`;
+                    const x = positions[r.id][0];
+                    const y = positions[r.id][1];
+                    elements += '<circle cx="' + x + '" cy="' + y + '" r="20" class="resource" />';
+                    elements += '<text x="' + x + '" y="' + (y + 5) + '" text-anchor="middle">' + r.id + '</text>';
                 }
             });
 
-            state.processes.forEach(p => {
-                const [x, y] = positions[p.id];
+            state.processes.forEach(function(p) {
+                const x = positions[p.id][0];
+                const y = positions[p.id][1];
                 const isDead = state.deadlockCycle.includes(p.id);
-                elements += `<circle cx="${x}" cy="${y}" r="28" class="process ${isDead ? 'deadlocked' : ''}" />`;
-                elements += `<text x="${x}" y="${y + 5}" text-anchor="middle">${p.id}</text>`;
+                elements += '<circle cx="' + x + '" cy="' + y + '" r="28" class="process ' + (isDead ? 'deadlocked' : '') + '" />';
+                elements += '<text x="' + x + '" y="' + (y + 5) + '" text-anchor="middle">' + p.id + '</text>';
             });
 
             svg.innerHTML = elements;
@@ -527,11 +601,11 @@
         }
 
         function renderLogs() {
-            const html = state.logs.slice().reverse().map(log => `
-                <div class="log-entry ${log.isAlert ? 'alert' : ''}">
-                    <span class="log-time">[${log.time}]</span>${log.message}
-                </div>
-            `).join('');
+            const html = state.logs.slice().reverse().map(function(log) {
+                return '<div class="log-entry ' + (log.isAlert ? 'alert' : '') + '">' +
+                    '<span class="log-time">[' + log.time + ']</span>' + log.message +
+                    '</div>';
+            }).join('');
             document.getElementById('logs').innerHTML = html;
         }
 
